@@ -126,17 +126,17 @@ def get_answer(groq_messages, want_vision, max_tokens, placeholder=None):
                 temperature=0.4,
                 max_tokens=max_tokens,
             )
-            return response.choices[0].message.content, None
+            return response.choices[0].message.content, None, None
         except Exception as e:
             msg = str(e)
             if "rate_limit_exceeded" in msg or "429" in msg:
                 hit_rate_limit = True
-            last_error = e
+            last_error = f"{model_id}: {msg}"
             continue  # quietly try the next model
 
     if hit_rate_limit:
-        return None, "busy"
-    return None, "error"
+        return None, "busy", last_error
+    return None, "error", last_error
 
 # ---------------------------------------------------------------------------
 # Styling — soft pink / girly theme
@@ -278,7 +278,7 @@ if prompt:
                 groq_messages.append({"role": m["role"], "content": m["content"]})
 
         max_out_tokens = 700 if image_b64 else 1200
-        answer, error_kind = get_answer(groq_messages, want_vision=bool(image_b64), max_tokens=max_out_tokens, placeholder=placeholder)
+        answer, error_kind, raw_error = get_answer(groq_messages, want_vision=bool(image_b64), max_tokens=max_out_tokens, placeholder=placeholder)
 
         if answer is not None:
             full_reply = answer
@@ -288,6 +288,9 @@ if prompt:
             full_reply = "Hmm, something went wrong on my end 😖 — try asking that again in a moment!"
 
         placeholder.markdown(full_reply)
+        if raw_error:
+            with st.expander("🔧 technical details (tap if this keeps happening)"):
+                st.code(raw_error)
 
     st.session_state.messages.append({"role": "assistant", "content": full_reply})
     persist_current()
