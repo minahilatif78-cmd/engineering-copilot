@@ -10,7 +10,7 @@ import uuid
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="Engineering Copilot", page_icon="📐", layout="wide")
 
-MODEL = "llama-3.3-70b-versatile"   # swap for any Groq-hosted model you have access to
+MODEL = "llama-3.1-8b-instant"   # swap for any Groq-hosted model you have access to
 HISTORY_FILE = "ec_history.json"
 
 SYSTEM_PROMPT = """You are Engineering Copilot: a direct-answer AI assistant that explains things better than a typical AI chatbot.
