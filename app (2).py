@@ -10,7 +10,13 @@ import uuid
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="Engineering Copilot", page_icon="📐", layout="wide")
 
-MODEL = "llama-3.1-8b-instant"   # swap for any Groq-hosted model you have access to
+CANDIDATE_MODELS = [
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3-32b",
+]
 HISTORY_FILE = "ec_history.json"
 
 SYSTEM_PROMPT = """You are Engineering Copilot: a direct-answer AI assistant that explains things better than a typical AI chatbot.
@@ -24,16 +30,24 @@ Rules:
 """
 
 # ---------------------------------------------------------------------------
-# Groq client — reads GROQ_API_KEY from env or Streamlit secrets
+# Groq client — API key entered directly in the app (no terminal setup needed)
 # ---------------------------------------------------------------------------
-def get_client():
-    api_key = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY", None)
-    if not api_key:
-        st.error("No GROQ_API_KEY found. Set it as an environment variable or in .streamlit/secrets.toml")
-        st.stop()
-    return Groq(api_key=api_key)
+if "groq_api_key" not in st.session_state:
+    st.session_state.groq_api_key = os.environ.get("GROQ_API_KEY", "")
 
-client = get_client()
+if not st.session_state.groq_api_key:
+    st.title("📐 Engineering Copilot — setup")
+    st.write("Paste your Groq API key below (get one free at console.groq.com → API Keys).")
+    key_input = st.text_input("Groq API key", type="password")
+    if st.button("Save and continue"):
+        if key_input.strip():
+            st.session_state.groq_api_key = key_input.strip()
+            st.rerun()
+        else:
+            st.warning("Paste a key first.")
+    st.stop()
+
+client = Groq(api_key=st.session_state.groq_api_key)
 
 # ---------------------------------------------------------------------------
 # Persistent history (simple JSON file — swap for a DB later if you want)
@@ -136,6 +150,9 @@ with st.sidebar:
     if st.button("+ New conversation", use_container_width=True):
         new_chat()
         st.rerun()
+
+    MODEL = st.selectbox("Model", CANDIDATE_MODELS, index=0)
+    st.caption("If you get a 'model_not_found' error, just pick a different one from this list.")
 
     st.markdown("<div style='color:#8CA0B8; font-size:11px; margin:14px 0 6px;'>history</div>", unsafe_allow_html=True)
     for c in reversed(st.session_state.conversations):
