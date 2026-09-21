@@ -4,6 +4,7 @@ import json
 import os
 import time
 import uuid
+import base64
 
 # ---------------------------------------------------------------------------
 # Config
@@ -11,13 +12,14 @@ import uuid
 st.set_page_config(page_title="Engineering Copilot", page_icon="📐", layout="wide")
 
 CANDIDATE_MODELS = [
-    "llama-3.1-8b-instant",
-    "llama-3.3-70b-versatile",
     "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
-    "qwen/qwen3-32b",
+    "groq/compound",
+    "groq/compound-mini",
+    "qwen/qwen3.8-27b",
 ]
 HISTORY_FILE = "ec_history.json"
+VISION_MODEL = "qwen/qwen3.8-27b"   # the only model in CANDIDATE_MODELS that can read images
 
 SYSTEM_PROMPT = """You are Engineering Copilot: a direct-answer AI assistant that explains things better than a typical AI chatbot.
 
@@ -33,7 +35,9 @@ Rules:
 # Groq client — API key entered directly in the app (no terminal setup needed)
 # ---------------------------------------------------------------------------
 if "groq_api_key" not in st.session_state:
-    st.session_state.groq_api_key = os.environ.get("GROQ_API_KEY", "")
+    env_key = os.environ.get("GROQ_API_KEY", "")
+    secret_key = st.secrets.get("GROQ_API_KEY", "") if hasattr(st, "secrets") else ""
+    st.session_state.groq_api_key = env_key or secret_key or ""
 
 if not st.session_state.groq_api_key:
     st.title("📐 Engineering Copilot — setup")
@@ -177,26 +181,59 @@ st.caption("Ask anything — strongest on engineering and math, explains the *wh
 
 for msg in st.session_state.messages:
     with st.chat_message("user" if msg["role"] == "user" else "assistant"):
+        if msg.get("image"):
+            st.image(base64.b64decode(msg["image"]), width=280)
         st.markdown(msg["content"])
 
+uploaded_image = st.file_uploader(
+    "Attach a photo of the problem (optional)",
+    type=["png", "jpg", "jpeg"],
+    key=f"uploader_{st.session_state.current_id}",
+)
 prompt = st.chat_input("Ask an engineering question, a math problem, or anything else…")
 
 if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    image_b64 = None
+    if uploaded_image is not None:
+        image_bytes = uploaded_image.read()
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    user_msg = {"role": "user", "content": prompt}
+    if image_b64:
+        user_msg["image"] = image_b64
+    st.session_state.messages.append(user_msg)
+
     with st.chat_message("user"):
+        if image_b64:
+            st.image(base64.b64decode(image_b64), width=280)
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
         placeholder = st.empty()
         placeholder.markdown("_thinking…_")
 
-        groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + [
-            {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
-        ]
+        # Build the message list. Text-only turns stay plain strings;
+        # the turn carrying an image uses Groq's multimodal content format.
+        groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for m in st.session_state.messages:
+            if m.get("image"):
+                groq_messages.append({
+                    "role": m["role"],
+                    "content": [
+                        {"type": "text", "text": m["content"]},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{m['image']}"}},
+                    ],
+                })
+            else:
+                groq_messages.append({"role": m["role"], "content": m["content"]})
+
+        active_model = VISION_MODEL if image_b64 else MODEL
+        if image_b64 and MODEL != VISION_MODEL:
+            st.caption(f"Switched to {VISION_MODEL} for this turn since it includes an image.")
 
         try:
             stream = client.chat.completions.create(
-                model=MODEL,
+                model=active_model,
                 messages=groq_messages,
                 stream=True,
                 temperature=0.4,
