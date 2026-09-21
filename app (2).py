@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 import base64
+import random
 
 # ---------------------------------------------------------------------------
 # Config
@@ -37,6 +38,15 @@ Rules:
 6. ALWAYS write every formula, equation, and mathematical expression in LaTeX, wrapped in dollar signs — inline math as $like this$, and any standalone/multi-line equation as its own block wrapped in $$like this$$. Never write formulas as plain text. This applies to every subject, not just engineering.
 7. The conversation may jump between completely unrelated topics from one question to the next. Treat each new question on its own merits — do NOT assume it relates to, continues, or should be reconciled with the previous question unless the user explicitly refers back to it. A shift in subject is normal, not a mistake to explain or connect.
 """
+
+GIRLY_CLOSERS = [
+    "You totally got this bestie 💅✨",
+    "Hope that made sense, cutie! Ask me anything else 💗",
+    "Ta-da! Math but make it cute 🎀",
+    "That's it! You're basically an engineer now 💫",
+    "Easy peasy — you're doing amazing sweetie 🌸",
+    "Hehe hope that helped! Come back anytime 💕",
+]
 
 # ---------------------------------------------------------------------------
 # Groq client — API key entered directly in the app (no terminal setup needed)
@@ -262,12 +272,14 @@ if prompt:
         placeholder = st.empty()
         placeholder.markdown("_thinking… 💭_")
 
-        # Build the message list. Text-only turns stay plain strings;
-        # the turn carrying an image uses Groq's multimodal content format.
-        groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # Text-only chain needs plain string content everywhere, even for
+        # turns that originally had a photo attached — so build two versions.
+        text_only_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        multimodal_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for m in st.session_state.messages:
+            text_only_messages.append({"role": m["role"], "content": m["content"]})
             if m.get("image"):
-                groq_messages.append({
+                multimodal_messages.append({
                     "role": m["role"],
                     "content": [
                         {"type": "text", "text": m["content"]},
@@ -275,13 +287,16 @@ if prompt:
                     ],
                 })
             else:
-                groq_messages.append({"role": m["role"], "content": m["content"]})
+                multimodal_messages.append({"role": m["role"], "content": m["content"]})
 
-        max_out_tokens = 700 if image_b64 else 1200
-        answer, error_kind, raw_error = get_answer(groq_messages, want_vision=bool(image_b64), max_tokens=max_out_tokens, placeholder=placeholder)
+        want_vision = bool(image_b64)
+        groq_messages = multimodal_messages if want_vision else text_only_messages
+        max_out_tokens = 700 if want_vision else 1200
+        answer, error_kind, raw_error = get_answer(groq_messages, want_vision=want_vision, max_tokens=max_out_tokens, placeholder=placeholder)
 
         if answer is not None:
-            full_reply = answer
+            closer = random.choice(GIRLY_CLOSERS)
+            full_reply = f"{answer}\n\n{closer}"
         elif error_kind == "busy":
             full_reply = "I'm getting a lot of questions right now 🥺 — give it about a minute and send that again, okay? 💗"
         else:
