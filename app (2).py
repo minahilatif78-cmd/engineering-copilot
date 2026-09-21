@@ -30,6 +30,7 @@ Rules:
 4. If a question is ambiguous, make a reasonable assumption, state it in one line, and answer anyway — don't stall with clarifying questions unless truly necessary.
 5. Use plain text formatting suitable for a chat window: short paragraphs, dashes for lists, no heavy markdown headers.
 6. ALWAYS write every formula, equation, and mathematical expression in LaTeX, wrapped in dollar signs — inline math as $like this$, and any standalone/multi-line equation as its own block wrapped in $$like this$$. Never write formulas as plain text (e.g. write $\\sigma = \\frac{M}{Z}$, never "sigma = M/Z" or "M over Z"). This applies to every subject, not just physics/engineering — chemistry equations, statistics, economics formulas, all of it.
+7. The conversation may jump between completely unrelated topics from one question to the next. Treat each new question on its own merits — do NOT assume it relates to, continues, or should be reconciled with the previous question unless the user explicitly refers back to it (e.g. "using that same beam..."). A shift in subject is normal, not a mistake to explain or connect.
 """
 
 # ---------------------------------------------------------------------------
@@ -156,16 +157,17 @@ with st.sidebar:
         new_chat()
         st.rerun()
 
-    MODEL = st.selectbox("Model", CANDIDATE_MODELS, index=0)
-    st.caption("If you get a 'model_not_found' error, just pick a different one from this list.")
+    with st.expander("Advanced: model settings"):
+        st.caption("You normally don't need to touch this. Photos automatically use the vision model — this only picks the model for plain text questions.")
+        MODEL = st.selectbox("Text model", CANDIDATE_MODELS, index=0)
 
-    if st.button("Check my key's available models", use_container_width=True):
-        try:
-            real_models = [m.id for m in client.models.list().data]
-            st.success("Your key can access:")
-            st.code("\n".join(real_models))
-        except Exception as e:
-            st.error(f"Key check failed: {e}")
+        if st.button("Check my key's available models", use_container_width=True):
+            try:
+                real_models = [m.id for m in client.models.list().data]
+                st.success("Your key can access:")
+                st.code("\n".join(real_models))
+            except Exception as e:
+                st.error(f"Key check failed: {e}")
 
     st.markdown("<div style='color:#8CA0B8; font-size:11px; margin:14px 0 6px;'>history</div>", unsafe_allow_html=True)
     for c in reversed(st.session_state.conversations):
