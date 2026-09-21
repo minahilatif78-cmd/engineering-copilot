@@ -2,24 +2,29 @@ import streamlit as st
 from groq import Groq
 import json
 import os
-import time
 import uuid
 import base64
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-st.set_page_config(page_title="Engineering Copilot", page_icon="📐", layout="wide")
+st.set_page_config(page_title="Engineering Copilot ✨", page_icon="🎀", layout="wide")
 
-CANDIDATE_MODELS = [
-    "openai/gpt-oss-20b",
+HISTORY_FILE = "ec_history.json"
+
+# Every chat-capable model on the key, best-first. The app tries these in
+# order behind the scenes — never shown to the user — until one answers.
+TEXT_MODEL_CHAIN = [
     "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
     "groq/compound",
     "groq/compound-mini",
+    "allam-2-7b",
+]
+# Vision-capable models on the key, best-first, for turns with a photo attached.
+VISION_MODEL_CHAIN = [
     "qwen/qwen3.8-27b",
 ]
-HISTORY_FILE = "ec_history.json"
-VISION_MODEL = "qwen/qwen3.8-27b"   # the only model in CANDIDATE_MODELS that can read images
 
 SYSTEM_PROMPT = """You are Engineering Copilot: a direct-answer AI assistant that explains things better than a typical AI chatbot.
 
@@ -29,8 +34,8 @@ Rules:
 3. Be concise but complete — no padding, no "as an AI" disclaimers, no excessive caveats. Write like a sharp, patient senior engineer explaining something to a capable junior, not like a textbook.
 4. If a question is ambiguous, make a reasonable assumption, state it in one line, and answer anyway — don't stall with clarifying questions unless truly necessary.
 5. Use plain text formatting suitable for a chat window: short paragraphs, dashes for lists, no heavy markdown headers.
-6. ALWAYS write every formula, equation, and mathematical expression in LaTeX, wrapped in dollar signs — inline math as $like this$, and any standalone/multi-line equation as its own block wrapped in $$like this$$. Never write formulas as plain text (e.g. write $\\sigma = \\frac{M}{Z}$, never "sigma = M/Z" or "M over Z"). This applies to every subject, not just physics/engineering — chemistry equations, statistics, economics formulas, all of it.
-7. The conversation may jump between completely unrelated topics from one question to the next. Treat each new question on its own merits — do NOT assume it relates to, continues, or should be reconciled with the previous question unless the user explicitly refers back to it (e.g. "using that same beam..."). A shift in subject is normal, not a mistake to explain or connect.
+6. ALWAYS write every formula, equation, and mathematical expression in LaTeX, wrapped in dollar signs — inline math as $like this$, and any standalone/multi-line equation as its own block wrapped in $$like this$$. Never write formulas as plain text. This applies to every subject, not just engineering.
+7. The conversation may jump between completely unrelated topics from one question to the next. Treat each new question on its own merits — do NOT assume it relates to, continues, or should be reconciled with the previous question unless the user explicitly refers back to it. A shift in subject is normal, not a mistake to explain or connect.
 """
 
 # ---------------------------------------------------------------------------
@@ -42,7 +47,7 @@ if "groq_api_key" not in st.session_state:
     st.session_state.groq_api_key = env_key or secret_key or ""
 
 if not st.session_state.groq_api_key:
-    st.title("📐 Engineering Copilot — setup")
+    st.title("🎀 Engineering Copilot — setup")
     st.write("Paste your Groq API key below (get one free at console.groq.com → API Keys).")
     key_input = st.text_input("Groq API key", type="password")
     if st.button("Save and continue"):
@@ -50,7 +55,7 @@ if not st.session_state.groq_api_key:
             st.session_state.groq_api_key = key_input.strip()
             st.rerun()
         else:
-            st.warning("Paste a key first.")
+            st.warning("Paste a key first, bestie 💗")
     st.stop()
 
 client = Groq(api_key=st.session_state.groq_api_key)
@@ -102,49 +107,100 @@ def persist_current():
     save_history(st.session_state.conversations)
 
 # ---------------------------------------------------------------------------
-# Styling — blueprint / drafting-table theme
+# Silent model fallback — tries each model in the chain quietly.
+# The user never sees which one answered; they just get an answer.
+# ---------------------------------------------------------------------------
+def get_answer(groq_messages, want_vision, max_tokens):
+    chain = VISION_MODEL_CHAIN if want_vision else TEXT_MODEL_CHAIN
+    last_error = None
+    hit_rate_limit = False
+
+    for model_id in chain:
+        try:
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=groq_messages,
+                temperature=0.4,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content, None
+        except Exception as e:
+            msg = str(e)
+            if "rate_limit_exceeded" in msg or "429" in msg:
+                hit_rate_limit = True
+            last_error = e
+            continue  # quietly try the next model
+
+    if hit_rate_limit:
+        return None, "busy"
+    return None, "error"
+
+# ---------------------------------------------------------------------------
+# Styling — soft pink / girly theme
 # ---------------------------------------------------------------------------
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Poppins:wght@400;500;600&display=swap');
 
-html, body, [class*="css"]  { font-family: 'IBM Plex Mono', monospace; }
+html, body, [class*="css"]  { font-family: 'Poppins', sans-serif; }
 
 .stApp {
-    background-color: #0F1B2D;
-    background-image:
-        linear-gradient(rgba(157,197,224,0.06) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(157,197,224,0.06) 1px, transparent 1px);
-    background-size: 28px 28px;
+    background: radial-gradient(circle at 15% 0%, #FFE3EF 0%, #FDF1F7 35%, #FBE9F5 100%);
 }
 
 section[data-testid="stSidebar"] {
-    background-color: rgba(10,18,32,0.6);
-    border-right: 1px solid rgba(157,197,224,0.16);
+    background: linear-gradient(180deg, #FFD6E8 0%, #FFEAF3 100%);
+    border-right: 2px solid #FFB6D9;
 }
 
-h1, h2, h3 { font-family: 'Space Grotesk', sans-serif !important; color: #E7EEF5 !important; }
+h1, h2, h3 {
+    font-family: 'Quicksand', sans-serif !important;
+    color: #C2427A !important;
+    font-weight: 700 !important;
+}
 
 .stChatMessage { background: transparent !important; }
 
 [data-testid="stChatMessageContent"] {
-    color: #E7EEF5 !important;
-    font-size: 14px;
-    line-height: 1.7;
+    color: #5A3448 !important;
+    font-size: 14.5px;
+    line-height: 1.75;
+}
+
+div[data-testid="stChatMessage"] {
+    background: #FFFFFF;
+    border-radius: 20px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    box-shadow: 0 3px 10px rgba(219, 112, 162, 0.12);
+    border: 1px solid #FADCEA;
 }
 
 .stButton>button {
-    background-color: transparent;
-    border: 1px solid #8A5E36;
-    color: #CD8A4E;
-    font-family: 'IBM Plex Mono', monospace;
-    border-radius: 4px;
+    background: linear-gradient(135deg, #FF9FC7, #FFC1DE);
+    border: none;
+    color: #7A2049;
+    font-family: 'Quicksand', sans-serif;
+    font-weight: 600;
+    border-radius: 14px;
+    box-shadow: 0 3px 8px rgba(255, 133, 178, 0.35);
 }
 .stButton>button:hover {
-    border-color: #CD8A4E;
-    background-color: rgba(205,138,78,0.08);
-    color: #DE9A5F;
+    background: linear-gradient(135deg, #FF8ABC, #FFB0D4);
+    color: #5A0F33;
 }
+
+[data-testid="stChatInput"] textarea, .stTextInput input {
+    border-radius: 16px !important;
+    border: 2px solid #FFC1DE !important;
+}
+
+[data-testid="stFileUploader"] {
+    border-radius: 16px;
+}
+
+::-webkit-scrollbar { width: 9px; }
+::-webkit-scrollbar-thumb { background: #FFC1DE; border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -152,44 +208,32 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif !important; color: #E7EEF5
 # Sidebar — history
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### 📐 Engineering Copilot")
-    if st.button("+ New conversation", use_container_width=True):
+    st.markdown("### 🎀 Engineering Copilot")
+    if st.button("💗 New conversation", use_container_width=True):
         new_chat()
         st.rerun()
 
-    with st.expander("Advanced: model settings"):
-        st.caption("You normally don't need to touch this. Photos automatically use the vision model — this only picks the model for plain text questions.")
-        MODEL = st.selectbox("Text model", CANDIDATE_MODELS, index=0)
-
-        if st.button("Check my key's available models", use_container_width=True):
-            try:
-                real_models = [m.id for m in client.models.list().data]
-                st.success("Your key can access:")
-                st.code("\n".join(real_models))
-            except Exception as e:
-                st.error(f"Key check failed: {e}")
-
-    st.markdown("<div style='color:#8CA0B8; font-size:11px; margin:14px 0 6px;'>history</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#B0507E; font-size:11px; margin:16px 0 6px; font-weight:600;'>✨ history</div>", unsafe_allow_html=True)
     for c in reversed(st.session_state.conversations):
         label = c["title"] or "Untitled"
-        if st.button(label, key=c["id"], use_container_width=True):
+        if st.button(f"🌸 {label}", key=c["id"], use_container_width=True):
             load_conversation(c["id"])
             st.rerun()
 
 # ---------------------------------------------------------------------------
 # Main chat area
 # ---------------------------------------------------------------------------
-st.markdown("## Engineering Copilot")
-st.caption("Ask anything — strongest on engineering and math, explains the *why*, not just the answer.")
+st.markdown("## 🎀 Engineering Copilot")
+st.caption("Ask anything, cutie — strongest on engineering and math, explains the *why*, not just the answer. 💗")
 
 for msg in st.session_state.messages:
-    with st.chat_message("user" if msg["role"] == "user" else "assistant"):
+    with st.chat_message("user" if msg["role"] == "user" else "assistant", avatar=("🌸" if msg["role"] == "user" else "🎀")):
         if msg.get("image"):
             st.image(base64.b64decode(msg["image"]), width=280)
         st.markdown(msg["content"])
 
 uploaded_image = st.file_uploader(
-    "Attach a photo of the problem (optional)",
+    "📷 Attach a photo of the problem (optional)",
     type=["png", "jpg", "jpeg"],
     key=f"uploader_{st.session_state.current_id}",
 )
@@ -206,14 +250,14 @@ if prompt:
         user_msg["image"] = image_b64
     st.session_state.messages.append(user_msg)
 
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="🌸"):
         if image_b64:
             st.image(base64.b64decode(image_b64), width=280)
         st.markdown(prompt)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="🎀"):
         placeholder = st.empty()
-        placeholder.markdown("_thinking…_")
+        placeholder.markdown("_thinking… 💭_")
 
         # Build the message list. Text-only turns stay plain strings;
         # the turn carrying an image uses Groq's multimodal content format.
@@ -230,26 +274,17 @@ if prompt:
             else:
                 groq_messages.append({"role": m["role"], "content": m["content"]})
 
-        active_model = VISION_MODEL if image_b64 else MODEL
-        if image_b64 and MODEL != VISION_MODEL:
-            st.caption(f"Switched to {VISION_MODEL} for this turn since it includes an image.")
+        max_out_tokens = 700 if image_b64 else 1200
+        answer, error_kind = get_answer(groq_messages, want_vision=bool(image_b64), max_tokens=max_out_tokens)
 
-        try:
-            stream = client.chat.completions.create(
-                model=active_model,
-                messages=groq_messages,
-                stream=True,
-                temperature=0.4,
-            )
-            full_reply = ""
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                full_reply += delta
-                placeholder.markdown(full_reply + "▌")
-            placeholder.markdown(full_reply)
-        except Exception as e:
-            full_reply = f"Could not get a response: {e}"
-            placeholder.markdown(full_reply)
+        if answer is not None:
+            full_reply = answer
+        elif error_kind == "busy":
+            full_reply = "I'm getting a lot of questions right now 🥺 — give it about a minute and send that again, okay? 💗"
+        else:
+            full_reply = "Hmm, something went wrong on my end 😖 — try asking that again in a moment!"
+
+        placeholder.markdown(full_reply)
 
     st.session_state.messages.append({"role": "assistant", "content": full_reply})
     persist_current()
