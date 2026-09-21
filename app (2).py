@@ -58,7 +58,7 @@ if not st.session_state.groq_api_key:
             st.warning("Paste a key first, bestie 💗")
     st.stop()
 
-client = Groq(api_key=st.session_state.groq_api_key)
+client = Groq(api_key=st.session_state.groq_api_key, timeout=20.0)
 
 # ---------------------------------------------------------------------------
 # Persistent history (simple JSON file — swap for a DB later if you want)
@@ -110,12 +110,15 @@ def persist_current():
 # Silent model fallback — tries each model in the chain quietly.
 # The user never sees which one answered; they just get an answer.
 # ---------------------------------------------------------------------------
-def get_answer(groq_messages, want_vision, max_tokens):
+def get_answer(groq_messages, want_vision, max_tokens, placeholder=None):
     chain = VISION_MODEL_CHAIN if want_vision else TEXT_MODEL_CHAIN
     last_error = None
     hit_rate_limit = False
 
-    for model_id in chain:
+    for i, model_id in enumerate(chain):
+        if placeholder is not None:
+            dots = "." * ((i % 3) + 1)
+            placeholder.markdown(f"_thinking{dots} 💭_")
         try:
             response = client.chat.completions.create(
                 model=model_id,
@@ -275,7 +278,7 @@ if prompt:
                 groq_messages.append({"role": m["role"], "content": m["content"]})
 
         max_out_tokens = 700 if image_b64 else 1200
-        answer, error_kind = get_answer(groq_messages, want_vision=bool(image_b64), max_tokens=max_out_tokens)
+        answer, error_kind = get_answer(groq_messages, want_vision=bool(image_b64), max_tokens=max_out_tokens, placeholder=placeholder)
 
         if answer is not None:
             full_reply = answer
