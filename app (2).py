@@ -5,6 +5,8 @@ import os
 import uuid
 import base64
 import random
+import io
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Config
@@ -69,6 +71,15 @@ if not st.session_state.groq_api_key:
     st.stop()
 
 client = Groq(api_key=st.session_state.groq_api_key, timeout=20.0)
+
+def compress_image(raw_bytes, max_dim=768, quality=65):
+    """Shrink + compress a photo so it stays well under the vision model's
+    per-minute input token budget, which large images blow through fast."""
+    img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+    img.thumbnail((max_dim, max_dim))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
 
 # ---------------------------------------------------------------------------
 # Persistent history (simple JSON file — swap for a DB later if you want)
@@ -256,7 +267,8 @@ if prompt:
     image_b64 = None
     if uploaded_image is not None:
         image_bytes = uploaded_image.read()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        compressed = compress_image(image_bytes)
+        image_b64 = base64.b64encode(compressed).decode("utf-8")
 
     user_msg = {"role": "user", "content": prompt}
     if image_b64:
@@ -290,7 +302,12 @@ if prompt:
                 multimodal_messages.append({"role": m["role"], "content": m["content"]})
 
         want_vision = bool(image_b64)
-        groq_messages = multimodal_messages if want_vision else text_only_messages
+        if want_vision:
+            # Vision requests are token-hungry — only send the current turn,
+            # not the full chat history, to stay under the input token limit.
+            groq_messages = multimodal_messages[:1] + multimodal_messages[-1:]
+        else:
+            groq_messages = text_only_messages
         max_out_tokens = 700 if want_vision else 1200
         answer, error_kind, raw_error = get_answer(groq_messages, want_vision=want_vision, max_tokens=max_out_tokens, placeholder=placeholder)
 
