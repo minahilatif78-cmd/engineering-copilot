@@ -154,6 +154,14 @@ with st.sidebar:
     MODEL = st.selectbox("Model", CANDIDATE_MODELS, index=0)
     st.caption("If you get a 'model_not_found' error, just pick a different one from this list.")
 
+    if st.button("Check my key's available models", use_container_width=True):
+        try:
+            real_models = [m.id for m in client.models.list().data]
+            st.success("Your key can access:")
+            st.code("\n".join(real_models))
+        except Exception as e:
+            st.error(f"Key check failed: {e}")
+
     st.markdown("<div style='color:#8CA0B8; font-size:11px; margin:14px 0 6px;'>history</div>", unsafe_allow_html=True)
     for c in reversed(st.session_state.conversations):
         label = c["title"] or "Untitled"
